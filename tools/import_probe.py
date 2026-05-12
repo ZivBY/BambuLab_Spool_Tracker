@@ -37,6 +37,48 @@ def upsert_spool(conn: sqlite3.Connection, observed_at: str, tray: dict[str, Any
     if not tag_uid and not tray_uuid:
         return None
 
+    clauses: list[str] = []
+    params: list[str] = []
+    if tag_uid:
+        clauses.append("tag_uid = ?")
+        params.append(tag_uid)
+    if tray_uuid:
+        clauses.append("tray_uuid = ?")
+        params.append(tray_uuid)
+    existing = conn.execute(
+        f"SELECT id FROM spools WHERE {' OR '.join(clauses)} ORDER BY id LIMIT 1",
+        params,
+    ).fetchone()
+    if existing:
+        conn.execute(
+            """
+            UPDATE spools
+            SET tag_uid = COALESCE(?, tag_uid),
+                tray_uuid = COALESCE(?, tray_uuid),
+                filament_id = COALESCE(?, filament_id),
+                material_type = COALESCE(?, material_type),
+                sub_brand = COALESCE(?, sub_brand),
+                color_hex = COALESCE(?, color_hex),
+                nominal_weight_g = COALESCE(?, nominal_weight_g),
+                diameter_mm = COALESCE(?, diameter_mm),
+                last_seen_at = ?
+            WHERE id = ?
+            """,
+            (
+                tag_uid,
+                tray_uuid,
+                tray.get("tray_info_idx"),
+                tray.get("tray_type"),
+                tray.get("tray_sub_brands"),
+                tray.get("tray_color"),
+                as_float(tray.get("tray_weight")),
+                as_float(tray.get("tray_diameter")),
+                observed_at,
+                existing[0],
+            ),
+        )
+        return int(existing[0])
+
     conn.execute(
         """
         INSERT INTO spools (
@@ -44,14 +86,6 @@ def upsert_spool(conn: sqlite3.Connection, observed_at: str, tray: dict[str, Any
             nominal_weight_g, diameter_mm, first_seen_at, last_seen_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(tag_uid, tray_uuid) DO UPDATE SET
-            filament_id = excluded.filament_id,
-            material_type = excluded.material_type,
-            sub_brand = excluded.sub_brand,
-            color_hex = excluded.color_hex,
-            nominal_weight_g = excluded.nominal_weight_g,
-            diameter_mm = excluded.diameter_mm,
-            last_seen_at = excluded.last_seen_at
         """,
         (
             tag_uid,
@@ -66,11 +100,7 @@ def upsert_spool(conn: sqlite3.Connection, observed_at: str, tray: dict[str, Any
             observed_at,
         ),
     )
-    row = conn.execute(
-        "SELECT id FROM spools WHERE tag_uid IS ? AND tray_uuid IS ?",
-        (tag_uid, tray_uuid),
-    ).fetchone()
-    return int(row[0]) if row else None
+    return int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
 
 
 def main() -> int:
@@ -131,4 +161,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

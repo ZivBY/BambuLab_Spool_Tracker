@@ -18,10 +18,23 @@ CREATE TABLE IF NOT EXISTS spools (
     color_hex TEXT,
     nominal_weight_g REAL,
     diameter_mm REAL,
+    last_remain_percent REAL,
+    last_estimated_remaining_g REAL,
     source TEXT NOT NULL DEFAULT 'bambu',
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
+    deleted_at TEXT,
     UNIQUE(tag_uid, tray_uuid)
+);
+
+CREATE TABLE IF NOT EXISTS manual_filaments (
+    id INTEGER PRIMARY KEY,
+    label TEXT NOT NULL UNIQUE,
+    last_remain_percent REAL,
+    last_estimated_remaining_g REAL,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ams_slot_observations (
@@ -108,6 +121,72 @@ CREATE TABLE IF NOT EXISTS spool_usage_events (
     event_at TEXT NOT NULL,
     note TEXT
 );
+
+CREATE TABLE IF NOT EXISTS filament_drying_events (
+    id INTEGER PRIMARY KEY,
+    ams_id TEXT NOT NULL,
+    slot_id TEXT,
+    spool_id INTEGER REFERENCES spools(id),
+    attribution_source TEXT NOT NULL DEFAULT 'unassigned',
+    manual_filament_label TEXT,
+    dry_filament TEXT,
+    dry_temperature_c REAL,
+    dry_duration_hours REAL,
+    started_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    ended_at TEXT,
+    start_remaining_minutes INTEGER,
+    last_remaining_minutes INTEGER,
+    start_humidity_percent REAL,
+    end_humidity_percent REAL,
+    actual_duration_minutes REAL,
+    raw_json TEXT NOT NULL,
+    note TEXT
+);
+
+CREATE TABLE IF NOT EXISTS filament_drying_event_spools (
+    id INTEGER PRIMARY KEY,
+    drying_event_id INTEGER NOT NULL REFERENCES filament_drying_events(id) ON DELETE CASCADE,
+    spool_id INTEGER NOT NULL REFERENCES spools(id),
+    slot_id TEXT,
+    source TEXT NOT NULL DEFAULT 'rfid',
+    created_at TEXT NOT NULL,
+    UNIQUE(drying_event_id, spool_id)
+);
+
+CREATE TABLE IF NOT EXISTS filament_drying_event_slots (
+    drying_event_id INTEGER NOT NULL REFERENCES filament_drying_events(id) ON DELETE CASCADE,
+    slot_id TEXT NOT NULL,
+    spool_id INTEGER REFERENCES spools(id),
+    manual_filament_label TEXT,
+    ams_filament_label TEXT,
+    status TEXT NOT NULL DEFAULT 'unknown',
+    source TEXT NOT NULL DEFAULT 'unknown',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (drying_event_id, slot_id)
+);
+
+CREATE TABLE IF NOT EXISTS ams_slot_manual_filaments (
+    ams_id TEXT NOT NULL,
+    slot_id TEXT NOT NULL,
+    spool_id INTEGER REFERENCES spools(id),
+    manual_filament_label TEXT,
+    marked_empty INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (ams_id, slot_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_filament_drying_events_active
+    ON filament_drying_events(ams_id, ended_at);
+
+CREATE INDEX IF NOT EXISTS idx_filament_drying_events_started
+    ON filament_drying_events(started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_filament_drying_event_spools_event
+    ON filament_drying_event_spools(drying_event_id);
+
+CREATE INDEX IF NOT EXISTS idx_filament_drying_event_slots_event
+    ON filament_drying_event_slots(drying_event_id);
 """
 
 

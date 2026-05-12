@@ -46,10 +46,27 @@ function formatDryTime(minutes) {
   return hours > 0 ? `${hours}h ${String(mins).padStart(2, "0")}m` : `${mins}m`;
 }
 
+function dryingLabelStyle(label) {
+  const words = String(label || "").split(/\s+/);
+  const longest = words.reduce((max, word) => Math.max(max, word.length), 0);
+  return {
+    "--dry-label-font": longest > 18 ? "7.5px" : longest > 13 ? "8.5px" : "10px",
+    "--dry-label-width": `${Math.max(150, Math.min(360, String(label || "").length * 7 + 92))}px`,
+  };
+}
+
+function dryingLabelParts(label) {
+  return String(label || "")
+    .split("|")
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // AMS 2 Pro — 4 slots, transparent lid, status strip
 // ──────────────────────────────────────────────────────────────────────
 function AMS2Pro({ unit, spools, onSlotClick, climate }) {
+  climate = climate || {};
   // build slot array (0..3), find spool for each
   const slots = [0, 1, 2, 3].map(idx => {
     const s = spools.find(sp => sp.unit === unit.id && sp.slot === idx);
@@ -57,9 +74,13 @@ function AMS2Pro({ unit, spools, onSlotClick, climate }) {
   });
 
   const loaded = slots.filter(s => s.spool).length;
+  const isDrying = Boolean(climate.isDrying);
+  const dryLabel = climate.dryFilament || "Drying";
+  const dryLabelParts = dryingLabelParts(dryLabel);
+  const shouldMarquee = dryLabelParts.length > 1;
 
   return (
-    <div className="ams ams-2pro" data-unit={unit.id}>
+    <div className={`ams ams-2pro ${isDrying ? "is-drying" : ""}`} data-unit={unit.id}>
       {/* Feed tubes — stick out the top */}
       <div className="ams-tubes">
         {[0,1,2,3].map(i => <div key={i} className="ams-tube" />)}
@@ -99,6 +120,13 @@ function AMS2Pro({ unit, spools, onSlotClick, climate }) {
 
       {/* Chassis — bottom matte body with status display */}
       <div className="ams-chassis">
+        {isDrying && (
+          <div className={`drying-status drying-status-2pro ${shouldMarquee ? "is-marquee" : ""}`} style={dryingLabelStyle(dryLabel)}>
+            <span className="drying-pulse" />
+            <span className="drying-label"><span className="drying-label-inner">{dryLabel}</span></span>
+            <strong>{formatDryTime(climate.dryRemainingMinutes)}</strong>
+          </div>
+        )}
         <div className="ams-display">
           <div className="display-row">
             <span className="display-label">UNIT</span>
@@ -106,11 +134,11 @@ function AMS2Pro({ unit, spools, onSlotClick, climate }) {
           </div>
           <div className="display-row">
             <span className="display-label">TEMP</span>
-            <span className="display-value">{climate.temp.toFixed(1)}°</span>
+            <span className="display-value hot">{Number(climate.temp || 0).toFixed(1)}°</span>
           </div>
           <div className="display-row">
-            <span className="display-label">RH</span>
-            <span className="display-value">{climate.humidity}%</span>
+            <span className="display-label">{isDrying ? "SET" : "RH"}</span>
+            <span className="display-value">{isDrying && climate.drySetTemperatureC ? `${climate.drySetTemperatureC}°` : `${climate.humidity ?? "--"}%`}</span>
           </div>
           <div className="display-row">
             <span className="display-label">LOAD</span>
@@ -128,8 +156,10 @@ function AMS2Pro({ unit, spools, onSlotClick, climate }) {
 // AMS HT — single slot, taller, drying-focused, has a heater display
 // ──────────────────────────────────────────────────────────────────────
 function AMSHT({ unit, spools, onSlotClick, climate }) {
+  climate = climate || {};
   const spool = spools.find(s => s.unit === unit.id && s.slot === 0);
   const isDrying = Boolean(climate.isDrying);
+  const dryLabel = climate.dryFilament || "Drying";
 
   return (
     <div className={`ams ams-ht ${isDrying ? "is-drying" : ""}`} data-unit={unit.id}>
@@ -167,16 +197,16 @@ function AMSHT({ unit, spools, onSlotClick, climate }) {
 
       <div className="ams-chassis ht-chassis">
         {isDrying && (
-          <div className="drying-status">
+          <div className="drying-status drying-status-ht is-marquee">
             <span className="drying-pulse" />
-            <span>{climate.dryFilament || "Drying"}</span>
+            <span className="drying-label"><span className="drying-label-inner">{dryLabel}</span></span>
             <strong>{formatDryTime(climate.dryRemainingMinutes)}</strong>
           </div>
         )}
         <div className="ams-display ht-display">
           <div className="display-row">
             <span className="display-label">TEMP</span>
-            <span className="display-value hot">{climate.temp.toFixed(0)}°C</span>
+            <span className="display-value hot">{Number(climate.temp || 0).toFixed(0)}°C</span>
           </div>
           <div className="display-row">
             <span className="display-label">SET</span>
@@ -184,7 +214,7 @@ function AMSHT({ unit, spools, onSlotClick, climate }) {
           </div>
           <div className="display-row">
             <span className="display-label">RH</span>
-            <span className="display-value">{climate.humidity}%</span>
+            <span className="display-value">{climate.humidity ?? "--"}%</span>
           </div>
         </div>
         <div className="ams-badge ht-badge">HT</div>

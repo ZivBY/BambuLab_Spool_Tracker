@@ -2,32 +2,23 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $StartScript = Join-Path $PSScriptRoot "start_tracker.ps1"
-$TaskName = "BambuLab Spool Tracker"
+$ShortcutName = "Bambu Spool Tracker.lnk"
 
 if (-not (Test-Path -LiteralPath (Join-Path $ProjectRoot ".env"))) {
     throw "Missing .env in $ProjectRoot. Create it before installing the startup task."
 }
 
-$Action = New-ScheduledTaskAction `
-    -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$StartScript`"" `
-    -WorkingDirectory $ProjectRoot
+$StartupFolder = [Environment]::GetFolderPath("Startup")
+$ShortcutPath = Join-Path $StartupFolder $ShortcutName
+$PowerShell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
 
-$Trigger = New-ScheduledTaskTrigger -AtLogOn
-$Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel LeastPrivilege
-$Settings = New-ScheduledTaskSettingsSet `
-    -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries `
-    -RestartCount 3 `
-    -RestartInterval (New-TimeSpan -Minutes 1)
+$Shell = New-Object -ComObject WScript.Shell
+$Shortcut = $Shell.CreateShortcut($ShortcutPath)
+$Shortcut.TargetPath = $PowerShell
+$Shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$StartScript`""
+$Shortcut.WorkingDirectory = $ProjectRoot
+$Shortcut.Save()
 
-Register-ScheduledTask `
-    -TaskName $TaskName `
-    -Action $Action `
-    -Trigger $Trigger `
-    -Principal $Principal `
-    -Settings $Settings `
-    -Force | Out-Null
-
-Write-Host "Installed startup task: $TaskName"
-Write-Host "Dashboard URL: http://127.0.0.1:8050/"
+Write-Host "Installed startup shortcut: $ShortcutPath"
+Write-Host "Dashboard URL on this PC: http://127.0.0.1:8050/"
+Write-Host "Dashboard URL from another device: http://<this-computer-ip>:8050/"

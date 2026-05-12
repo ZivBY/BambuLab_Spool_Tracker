@@ -16,10 +16,13 @@ from urllib.parse import urlparse
 import paho.mqtt.client as mqtt
 
 from tools.tracker_store import (
+    assign_drying_event,
     connect_db,
     dashboard_snapshot,
+    delete_inventory_item,
     init_schema,
     record_printer_message,
+    update_inventory_item,
 )
 
 
@@ -166,9 +169,56 @@ class TrackerHandler(SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
-    def send_json(self, data: dict[str, Any]) -> None:
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/drying-events/assign":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                body = self.rfile.read(length).decode("utf-8")
+                payload = json.loads(body or "{}")
+                event_id = int(payload.get("event_id"))
+                raw_spool_id = payload.get("spool_id")
+                spool_id = int(raw_spool_id) if str(raw_spool_id or "").isdigit() else None
+                data = assign_drying_event(
+                    self.db_path,
+                    event_id,
+                    spool_id=spool_id,
+                    manual_filament_label=payload.get("manual_filament_label"),
+                    slot_assignments=payload.get("slot_assignments"),
+                    note=payload.get("note"),
+                )
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                self.send_json({"ok": False, "error": str(exc)}, status=400)
+                return
+            self.send_json({"ok": True, "data": data})
+            return
+        if parsed.path == "/api/inventory/update":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                body = self.rfile.read(length).decode("utf-8")
+                payload = json.loads(body or "{}")
+                data = update_inventory_item(self.db_path, payload)
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                self.send_json({"ok": False, "error": str(exc)}, status=400)
+                return
+            self.send_json({"ok": True, "data": data})
+            return
+        if parsed.path == "/api/inventory/delete":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                body = self.rfile.read(length).decode("utf-8")
+                payload = json.loads(body or "{}")
+                data = delete_inventory_item(self.db_path, payload)
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                self.send_json({"ok": False, "error": str(exc)}, status=400)
+                return
+            self.send_json({"ok": True, "data": data})
+            return
+        self.send_error(404)
+
+    def send_json(self, data: dict[str, Any], status: int = 200) -> None:
         body = json.dumps(data, default=str).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
