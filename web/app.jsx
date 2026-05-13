@@ -12,6 +12,10 @@ function liveColorKey(slot) {
   return `live-${slot.ams_id}-${slot.slot_id}`;
 }
 
+function inventoryColorKey(spool) {
+  return `inventory-${spool.inventory_id || spool.id}`;
+}
+
 function liveHex(slot) {
   if (!slot.color_hex || slot.color_hex.length < 6) return "#2b2721";
   return `#${slot.color_hex.slice(0, 6)}`;
@@ -252,7 +256,7 @@ function adaptLiveData(data) {
     const source = spool.inventory_source || "rfid";
     const unit = spool.ams_id !== null && spool.ams_id !== undefined ? unitIdForAms(spool.ams_id) : null;
     const hex = spool.color_hex ? liveHex(spool) : "#8b8274";
-    const color = source === "manual" ? `manual-${spool.id}` : liveColorKey({ ams_id: spool.ams_id || "stored", slot_id: spool.id });
+    const color = source === "manual" ? `manual-${spool.id}` : inventoryColorKey(spool);
     window.SPOOL_PALETTE[color] = {
       name: source === "manual" ? "Manual" : liveColorName(hex),
       hex,

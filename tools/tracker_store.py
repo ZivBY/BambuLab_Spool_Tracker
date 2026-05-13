@@ -166,6 +166,7 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
         """
     )
     reconcile_partial_drying_assignments(conn)
+    reset_stale_empty_drying_autofill(conn)
 
 
 def reconcile_partial_drying_assignments(conn: sqlite3.Connection) -> None:
@@ -210,6 +211,82 @@ def reconcile_partial_drying_assignments(conn: sqlite3.Connection) -> None:
                 """,
                 (event["manual_filament_label"], now, event["id"], slot_id),
             )
+
+
+def reset_stale_empty_drying_autofill(conn: sqlite3.Connection) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    rows = conn.execute(
+        """
+        SELECT d.id AS event_id, d.started_at, slots.slot_id,
+               manual.updated_at AS memory_updated_at,
+               current.tag_uid, current.tray_uuid, current.material_type, current.sub_brand
+        FROM filament_drying_events d
+        JOIN filament_drying_event_slots slots
+          ON slots.drying_event_id = d.id
+        LEFT JOIN ams_slot_manual_filaments manual
+          ON manual.ams_id = d.ams_id AND manual.slot_id = slots.slot_id
+        LEFT JOIN current_ams_slots current
+          ON current.ams_id = d.ams_id AND current.slot_id = slots.slot_id
+        WHERE d.ended_at IS NULL
+          AND slots.source = 'manual'
+          AND slots.status != 'unknown'
+        """,
+    ).fetchall()
+    touched_events: set[int] = set()
+    for row in rows:
+        memory_time = parse_timestamp(row["memory_updated_at"])
+        event_start = parse_timestamp(row["started_at"])
+        current_has_identity = any(
+            row[column] is not None
+            for column in ("tag_uid", "tray_uuid", "material_type", "sub_brand")
+        )
+        if current_has_identity:
+            continue
+        if memory_time and event_start and memory_time >= event_start:
+            continue
+        conn.execute(
+            """
+            UPDATE filament_drying_event_slots
+            SET spool_id = NULL,
+                manual_filament_label = NULL,
+                ams_filament_label = NULL,
+                status = 'unknown',
+                source = 'ams',
+                updated_at = ?
+            WHERE drying_event_id = ? AND slot_id = ?
+            """,
+            (now, row["event_id"], row["slot_id"]),
+        )
+        touched_events.add(int(row["event_id"]))
+
+    for event_id in touched_events:
+        assigned = conn.execute(
+            """
+            SELECT 1
+            FROM filament_drying_event_slots
+            WHERE drying_event_id = ?
+              AND (
+                spool_id IS NOT NULL
+                OR status IN ('manual', 'rfid')
+                OR manual_filament_label IS NOT NULL
+              )
+            LIMIT 1
+            """,
+            (event_id,),
+        ).fetchone()
+        if assigned:
+            continue
+        conn.execute(
+            """
+            UPDATE filament_drying_events
+            SET spool_id = NULL,
+                slot_id = NULL,
+                manual_filament_label = NULL,
+                attribution_source = 'unassigned'
+            WHERE id = ?
+            """,
+            (event_id,),
+        )
 
 
 def merge_duplicate_spool(conn: sqlite3.Connection, keeper_id: int, duplicate_id: int) -> None:
@@ -519,7 +596,7 @@ def drying_slots_from_ams(conn: sqlite3.Connection, observed_at: str, ams: dict[
                 "status": "rfid",
                 "source": "rfid",
             })
-        elif override and override["spool_id"]:
+        elif loaded and override and override["spool_id"]:
             slots.append({
                 "slot_id": slot_id,
                 "spool_id": int(override["spool_id"]),
@@ -528,7 +605,7 @@ def drying_slots_from_ams(conn: sqlite3.Connection, observed_at: str, ams: dict[
                 "status": "rfid",
                 "source": "manual",
             })
-        elif override and override["manual_filament_label"]:
+        elif loaded and override and override["manual_filament_label"]:
             slots.append({
                 "slot_id": slot_id,
                 "spool_id": None,
@@ -537,7 +614,7 @@ def drying_slots_from_ams(conn: sqlite3.Connection, observed_at: str, ams: dict[
                 "status": "manual",
                 "source": "manual",
             })
-        elif override and override["marked_empty"]:
+        elif loaded and override and override["marked_empty"]:
             slots.append({
                 "slot_id": slot_id,
                 "spool_id": None,
@@ -598,6 +675,30 @@ def sync_drying_event_slots(
     slots: list[dict[str, Any]],
 ) -> None:
     for slot in slots:
+        existing = conn.execute(
+            """
+            SELECT status, source
+            FROM filament_drying_event_slots
+            WHERE drying_event_id = ? AND slot_id = ?
+            """,
+            (event_id, slot["slot_id"]),
+        ).fetchone()
+        if (
+            existing
+            and slot["status"] == "unknown"
+            and existing["status"] != "unknown"
+        ):
+            # The AMS can stop reporting identity during drying. Preserve a
+            # user/RFID assignment already made for this specific cycle.
+            conn.execute(
+                """
+                UPDATE filament_drying_event_slots
+                SET updated_at = ?
+                WHERE drying_event_id = ? AND slot_id = ?
+                """,
+                (observed_at, event_id, slot["slot_id"]),
+            )
+            continue
         conn.execute(
             """
             INSERT INTO filament_drying_event_slots (
