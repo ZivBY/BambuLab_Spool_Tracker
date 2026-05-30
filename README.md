@@ -19,8 +19,9 @@ For newer firmware, enable LAN/Developer Mode if local MQTT is not available in 
 ### Setup
 
 ```powershell
-cd "C:\GPT Projects\bambu-spool-tracker"
-python -m pip install -r requirements.txt
+cd "C:\Users\benye\OneDrive\Documents\New project\bambu-spool-tracker"
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
@@ -29,7 +30,7 @@ Edit `.env` with your printer values.
 ### Run
 
 ```powershell
-python .\tools\bambu_probe.py --env .env --seconds 20
+.\.venv\Scripts\python.exe .\tools\bambu_probe.py --env .env --seconds 20
 ```
 
 The output file will be written to `data/raw/`.
@@ -37,8 +38,8 @@ The output file will be written to `data/raw/`.
 ## Run the live watcher and dashboard
 
 ```powershell
-cd "C:\GPT Projects\bambu-spool-tracker"
-python .\app.py --http-host 127.0.0.1 --http-port 8050
+cd "C:\Users\benye\OneDrive\Documents\New project\bambu-spool-tracker"
+.\scripts\start_tracker.ps1
 ```
 
 Open `http://127.0.0.1:8050/`.
@@ -54,7 +55,7 @@ GitHub stores the project, but the live watcher must run on a machine that can r
 To start it automatically when you log in:
 
 ```powershell
-cd "C:\GPT Projects\bambu-spool-tracker"
+cd "C:\Users\benye\OneDrive\Documents\New project\bambu-spool-tracker"
 .\scripts\install_startup_task.ps1
 ```
 
